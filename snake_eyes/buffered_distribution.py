@@ -17,7 +17,7 @@ except ImportError:
 from snake_eyes.bufferer import Bufferer, ChoiceBufferer
 from snake_eyes.distribution import Distribution, add, mul, div, ConstDistribution, ReciprocalDistribution, \
     SumDistribution, ProductDistribution, _maybe_parenthesise
-from snake_eyes.util import prod, common_type
+from snake_eyes.util import prod, common_dtype
 
 T = TypeVar('T')
 
@@ -368,7 +368,7 @@ class SplitDistribution(Generic[T], Distribution[T]):
             np.asanyarray(option.get_n(np.sum(indices == i)))
             for (i, option) in enumerate(self.options)
         ]
-        dtype = common_type(*individuals)
+        dtype = common_dtype(*individuals)
         ret = np.empty(shape=n, dtype=dtype)
         for i in range(len(individuals)):
             ret[indices == i] = individuals[i]

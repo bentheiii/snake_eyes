@@ -139,7 +139,7 @@ class UnshiftedGeometricDistribution(ShiftedGeometricDistribution):
         return self.p
 
     def support_space(self):
-        return super().support_space()+(-1)
+        return super().support_space() + (-1)
 
 
 HyperGeometricDistribution = rv_discrete_class(hypergeom, 'HyperGeometricDistribution', __name__,
@@ -167,7 +167,7 @@ class TriangularDistribution(rv_continuous_class(triang)):
 
     @add.implementor()
     def add(self, other: float):
-        return type(self)(self.a + other, self.b + other, self.c + other)
+        return type(self)(self.a + other, self.b + other, self.peak + other)
 
     @mul.implementor()
     def mul(self, other: float):
@@ -175,4 +175,4 @@ class TriangularDistribution(rv_continuous_class(triang)):
         b = self.b
         if other < 0:
             a, b = b, a
-        return type(self)(a * other, b * other, self.c * other)
+        return type(self)(a * other, b * other, self.peak * other)

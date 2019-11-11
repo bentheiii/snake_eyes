@@ -8,6 +8,9 @@ except ImportError:
 
 
     def prod(x):
+        """
+        implementation of math.prod for python < 3.8
+        """
         return reduce(op.mul, x)
 
 
@@ -39,7 +42,10 @@ def _maybe_parenthesise(x, convert=str):
     return ret
 
 
-def common_type(*args):
+def common_dtype(*args):
+    """
+    Get the common dtype for numpy arrays, or object if none found
+    """
     try:
         return np.result_type(*args)
     except TypeError:

@@ -8,7 +8,10 @@ from math import sqrt
 from numbers import Rational
 from typing import Sequence, Optional, Iterable, Collection
 
-from snake_eyes.util import SequenceView, prod, min_max_prod, CacheIter
+from containerview.cached_iter import CacheIter
+from containerview.sequence_view import SequenceView
+
+from snake_eyes.util import prod, min_max_prod
 
 
 class DistributionKind(Enum):
