@@ -945,3 +945,12 @@ class MappedDistribution(Distribution[T], Generic[F, T]):
 
     def get_n(self, n) -> Sequence[T]:
         return [self.func(i) for i in self.inner.get_n(n)]
+
+    def __repr__(self):
+        return f'{self.inner!r}.map({self.func!r})'
+
+    def __eq__(self, other):
+        return type(self) is type(other) and self.inner == other.inner and self.func == other.func
+
+    def __hash__(self):
+        return hash((type(self), self.inner, self.func))
