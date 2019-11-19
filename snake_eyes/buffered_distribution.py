@@ -7,7 +7,7 @@ from typing import Generic, TypeVar, Iterable, Type, Any, Tuple, Dict, Optional,
 from dyndis import Self
 import numpy as np
 
-from snake_eyes.support_space import DiscreteFiniteSupportSpace, JoinedSupportSpace
+from snake_eyes.support_space import DiscreteFiniteSupportSpace
 
 try:
     from scipy import stats
@@ -17,12 +17,12 @@ except ImportError:
 from snake_eyes.bufferer import Bufferer, ChoiceBufferer
 from snake_eyes.distribution import Distribution, add, mul, div, ConstDistribution, ReciprocalDistribution, \
     SumDistribution, ProductDistribution, _maybe_parenthesise
-from snake_eyes.util import prod, common_dtype
+from snake_eyes.util import prod
 
 T = TypeVar('T')
 
 
-class BufferedDistribution(Generic[T], Distribution[T]):
+class BufferedDistribution( Distribution[T], Generic[T]):
     """
     A generic distribution that takes a bufferer and adapts it into a distribution
     """
@@ -64,13 +64,13 @@ class BufferedDistribution(Generic[T], Distribution[T]):
         return self.bufferer.get_n(n)
 
 
-class ReciprocalBufferedDistribution(Generic[T], BufferedDistribution[T], ReciprocalDistribution):
+class ReciprocalBufferedDistribution(BufferedDistribution[T], ReciprocalDistribution, Generic[T]):
     def __init__(self, inner: BufferedDistribution[T]):
         BufferedDistribution.__init__(self, inner.bufferer.reciprocal())
         ReciprocalDistribution.__init__(self, inner)
 
 
-class SumBufferedDistribution(Generic[T], BufferedDistribution[T], SumDistribution):
+class SumBufferedDistribution(BufferedDistribution[T], SumDistribution, Generic[T]):
     def __init__(self, parts: Iterable[BufferedDistribution[T]]):
         SumDistribution.__init__(self, parts)
         BufferedDistribution.__init__(self, sum(p.bufferer for p in self.parts))
@@ -81,7 +81,7 @@ class SumBufferedDistribution(Generic[T], BufferedDistribution[T], SumDistributi
         return type(self)(p)
 
 
-class SumConstBufferedDistribution(Generic[T], BufferedDistribution[T]):
+class SumConstBufferedDistribution(BufferedDistribution[T], Generic[T]):
     """
     A distribution that is the sum of a buffered distribution and a constant value
     """
@@ -142,8 +142,11 @@ class SumConstBufferedDistribution(Generic[T], BufferedDistribution[T]):
     def __str__(self):
         return f'{_maybe_parenthesise(self.inner)} + {self.const}'
 
+    def __hash__(self):
+        return hash((type(self), self.inner, self.const))
 
-class ProductBufferedDistribution(Generic[T], BufferedDistribution[T], ProductDistribution):
+
+class ProductBufferedDistribution( BufferedDistribution[T], ProductDistribution, Generic[T]):
     def __init__(self, parts: Iterable[BufferedDistribution[T]]):
         ProductDistribution.__init__(self, parts)
         BufferedDistribution.__init__(self, prod(p.bufferer for p in self.parts))
@@ -154,7 +157,7 @@ class ProductBufferedDistribution(Generic[T], BufferedDistribution[T], ProductDi
         return type(self)(p)
 
 
-class ProductConstBufferedDistribution(Generic[T], BufferedDistribution[T]):
+class ProductConstBufferedDistribution( BufferedDistribution[T], Generic[T]):
     """
     A distribution that is the product of a buffered distribution and a constant value
     """
@@ -210,8 +213,11 @@ class ProductConstBufferedDistribution(Generic[T], BufferedDistribution[T]):
     def __str__(self):
         return f'{_maybe_parenthesise(self.inner)} * {self.const}'
 
+    def __hash__(self):
+        return hash((type(self), self.inner, self.const))
 
-class BuffererMakerDistribution(Generic[T], BufferedDistribution[T]):
+
+class BuffererMakerDistribution( BufferedDistribution[T], Generic[T]):
     """
     A specialized bufferer distribution that makes use of already created and cached bufferers using the
      bufferer's make method.
@@ -242,6 +248,9 @@ class BuffererMakerDistribution(Generic[T], BufferedDistribution[T]):
 
     def __eq__(self, other):
         return type(self) is type(other) and self.args == other.args
+
+    def __hash__(self):
+        return hash(repr(self))
 
 
 class ChoiceDistribution(BuffererMakerDistribution):
@@ -324,143 +333,3 @@ class ChoiceDistribution(BuffererMakerDistribution):
             if not choices:
                 raise ValueError("can't truncate all options")
             return type(self)(choices)
-
-
-class SplitDistribution(Generic[T], Distribution[T]):
-    """
-    A distribution that has a chance to delegate other distributions
-    """
-
-    def __init__(self, options: Iterable[Distribution[T]], probabilites: Iterable[float]):
-        self.options: Tuple[Distribution[T]] = tuple(options)
-        self.probabilities = tuple(probabilites)
-        self.index_distribution = ChoiceDistribution(range(len(self.options)), p=self.probabilities)
-
-    @classmethod
-    def create(cls, options: Iterable[Tuple[Any, Union[type(...), float]]], normalize=False):
-        partial_total = 0
-        dists = []
-        probs = []
-        for (d, p) in options:
-            dists.append(cls.coerce(d))
-            if p is ...:
-                if normalize:
-                    raise ValueError('cannot use normalize and ... together')
-                p = 1-partial_total
-            if p == 0:
-                continue
-            if p < 0:
-                raise ValueError(f'option {d} had negative probability')
-            probs.append(p)
-            partial_total += p
-            if not normalize and partial_total > 1:
-                raise ValueError('total probabilities exceed 1')
-        if normalize:
-            probs = (p/partial_total for p in probs)
-        return cls(dists, probs)
-
-    def get(self):
-        return self.options[self.index_distribution.get()].get()
-
-    def get_n(self, n):
-        indices = np.asanyarray(self.index_distribution.get_n(n))
-        individuals = [
-            np.asanyarray(option.get_n(np.sum(indices == i)))
-            for (i, option) in enumerate(self.options)
-        ]
-        dtype = common_dtype(*individuals)
-        ret = np.empty(shape=n, dtype=dtype)
-        for i in range(len(individuals)):
-            ret[indices == i] = individuals[i]
-        return ret
-
-    def mean(self):
-        ret = 0
-        for o, p in zip(self.options, self.probabilities):
-            m = o.mean()
-            if m is None:
-                return None
-            ret += (m * p)
-        return ret
-
-    def variance(self):
-        mean = self.mean()
-        if mean is None:
-            return None
-        ret = mean ** 2
-        for p, sub_dist in zip(self.probabilities, self.options):
-            subdist_mean = sub_dist.mean()
-            if subdist_mean is None:
-                return None
-            subdist_var = sub_dist.variance()
-            if subdist_var is None:
-                return None
-            subdist_mean_sq = subdist_var + subdist_mean ** 2
-            ret += p * (subdist_mean_sq - 2 * mean * subdist_mean)
-
-        return ret
-
-    def support_class(self):
-        ss = tuple(p.support_space() for p in self.options)
-        if None in ss:
-            return None
-        return JoinedSupportSpace.join(ss)
-
-    def cumulative_density(self, k):
-        ret = 0
-        for (o, p) in zip(self.options, self.probabilities):
-            m = o.cumulative_density(k)
-            if m is None:
-                return None
-            ret += p * m
-        return ret
-
-    def probability(self, k):
-        ret = 0
-        for (o, p) in zip(self.options, self.probabilities):
-            m = o.probability(k)
-            if m is None:
-                return None
-            ret += p * m
-        return ret
-
-    def __neg__(self):
-        return type(self)(
-            (-s for s in self.options),
-            self.probabilities
-        )
-
-    def reciprocal(self):
-        return type(self)(
-            (s.reciprocal() for s in self.options),
-            self.probabilities
-        )
-
-    @add.implementor(symmetric=True)
-    def add(self, other: Any):
-        return type(self)(
-            (s + other for s in self.options),
-            self.probabilities
-        )
-
-    @mul.implementor(symmetric=True)
-    def mul(self, other: Any):
-        return type(self)(
-            (s * other for s in self.options),
-            self.probabilities
-        )
-
-    def truncate(self, min=None, max=None):
-        return type(self)(
-            (s.truncate(min, max) for s in self.options),
-            self.probabilities
-        )
-
-    def __str__(self):
-        return type(self).__name__ + '(' \
-               + ", ".join(f"{p:.1%}: {_maybe_parenthesise(c)}" for (c, p) in zip(self.options, self.probabilities)) \
-               + ')'
-
-    def __eq__(self, other):
-        return type(self) is type(other) \
-               and set(zip(self.options, self.probabilities)) == set(zip(other.options, other.probabilites))

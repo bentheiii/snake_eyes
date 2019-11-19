@@ -128,6 +128,7 @@ class FuncBufferer(Bufferer):
     """
     A bufferer that uses a function to generate buffers
     """
+
     def __init__(self, func, args, kwargs):
         super().__init__()
         self.args = args
@@ -151,6 +152,7 @@ class SumBufferer(Bufferer):
     """
     A bufferer representing a sum of multiple bufferers
     """
+
     def __init__(self, parts: Iterable[Bufferer]):
         super().__init__()
         self.parts = tuple(parts)
@@ -169,6 +171,7 @@ class ProdBufferer(Bufferer):
     """
     A bufferer representing a product of multiple bufferers
     """
+
     def __init__(self, parts: Iterable[Bufferer]):
         super().__init__()
         self.parts = tuple(parts)
@@ -187,6 +190,7 @@ class InvBufferer(Bufferer):
     """
     A bufferer representing the inverse of a bufferer
     """
+
     def __init__(self, inner: Bufferer):
         super().__init__()
         self.inner = inner
@@ -202,6 +206,7 @@ class SumConstBufferer(Bufferer):
     """
     A bufferer representing a sum of a bufferers and a constant
     """
+
     def __init__(self, inner: Bufferer, const):
         super().__init__()
         self.inner = inner
@@ -229,6 +234,7 @@ class ProdConstBufferer(Bufferer):
     """
     A bufferer representing a product of a bufferers and a constant
     """
+
     def __init__(self, inner: Bufferer, const):
         super().__init__()
         self.inner = inner

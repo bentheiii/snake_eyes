@@ -79,7 +79,7 @@ class SupportSpace(ABC):
     def __mul__(self, other: Rational):
         return ProdSupportSpace((self, DiscreteFiniteSupportSpace((other,), True)))
 
-    def truncate(self, a, b):
+    def truncate(self, a, b) -> Optional[SupportSpace]:
         """
         truncate the support to exclude certain values
         """
@@ -90,6 +90,8 @@ class SupportSpace(ABC):
 
         if a <= self.minimum() and b >= self.maximum():
             return self
+        if a > self.maximum() or b < self.minimum() or a > b:
+            return None
         return TruncatedSupportSpace(self, a, b)
 
     def contains_space(self, other: SupportSpace):
@@ -166,8 +168,15 @@ class DiscreteFiniteSupportSpace(SupportSpace):
         if self.sorted and self.minimum() <= a and self.maximum() >= b:
             return self
 
+        if self.sorted and (self.minimum() > b or self.maximum() < b):
+            return None
+
+        ss = tuple(s for s in self.support if a <= s <= b)
+        if not ss:
+            return None
+
         return type(self)(
-            tuple(s for s in self.support if a <= s <= b),
+            ss,
             self.sorted
         )
 
@@ -251,6 +260,9 @@ class DiscreteWholeSupportSpace(SupportSpace):
         elif self.min is not None:
             b = min(self.max, b)
 
+        if b < a:
+            return None
+
         return type(self)(a, b)
 
 
@@ -294,13 +306,19 @@ class ContinuousSupportSpace(SupportSpace):
         if self.minimum() <= a and self.maximum() >= b:
             return self
 
-        return type(self)(max(a, self._minimum), min(b, self._maximum))
+        a = max(a, self._minimum)
+        b = min(b, self._maximum)
+
+        if b < a:
+            return None
+
+        return type(self)(a, b)
 
     def is_finite(self):
         return False
 
 
-class CompundSupportSpace(ABC, SupportSpace):
+class CompundSupportSpace(SupportSpace, ABC):
     def __init__(self, parts: Collection[SupportSpace]):
         self.parts = parts
 
@@ -552,84 +570,13 @@ class TruncatedSupportSpace(SupportSpace):
             a = -float('inf')
         if b is None:
             b = float('inf')
-        return self.inner.truncate(max(a, self.a), min(b, self.b))
+
+        a, b = max(a, self.a), min(b, self.b)
+
+        if b < a:
+            return None
+
+        return self.inner.truncate(a, b)
 
     def is_finite(self):
         return self.inner.is_finite()
-
-
-class JoinedSupportSpace(SupportSpace):
-    """
-    Compound joining of support spaces
-    """
-
-    @classmethod
-    def join(cls, parts):
-        uncontained = []
-        parts = list(parts)
-        while parts:
-            part = parts.pop()
-            if all(not p.contains_space(part) for p in parts):
-                uncontained.append(part)
-        return cls(parts)
-
-    def __init__(self, parts: Iterable[SupportSpace]):
-        self.parts = parts
-
-    def minimum(self):
-        return min(p.minimum() for p in self.parts)
-
-    def maximum(self):
-        return max(p.maximum() for p in self.parts)
-
-    def kind(self) -> Optional[DistributionKind]:
-        ret = None
-        for p in self.parts:
-            k = p.kind()
-            if k is None:
-                return k
-            if ret is None:
-                ret = k
-            elif ret != k:
-                return None
-        return ret
-
-    def contains(self, k) -> bool:
-        return any(p.contains(k) for p in self.parts)
-
-    def __add__(self, other: Rational):
-        return type(self)(tuple(p + other for p in self.parts))
-
-    def __mul__(self, other: Rational):
-        return type(self)(tuple(p * other for p in self.parts))
-
-    def __iter__(self):
-        infinite = []
-        non_discrete = []
-        continuous = []
-        for p in self.parts:
-            if p.is_finite():
-                yield from p
-            elif p.kind() == DistributionKind.Continuous:
-                continuous.append(p)
-            elif p.kind() == DistributionKind.Discrete:
-                infinite.append(p)
-            else:
-                non_discrete.append(p)
-        yield from chain.from_iterable(infinite)
-        yield from chain.from_iterable(non_discrete)
-        yield from chain.from_iterable(continuous)
-
-    def truncate(self, a, b):
-        parts_left = []
-        for p in self.parts:
-            if (a is not None and p.maximum() < a) \
-                    or (b is not None and p.minimum() > b):
-                continue
-            parts_left.append(p.truncate(a, b))
-        if not parts_left:
-            raise ValueError('no values')
-        return type(self)(parts_left)
-
-    def is_finite(self):
-        return all(p.is_finite() for p in self.parts)

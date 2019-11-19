@@ -49,6 +49,8 @@ class RVAdapterBase(Distribution, ABC):
         return self.frozen.cdf(k)
 
     def sample_mean(self, sample_size=256, abs_tol=0.0, rel_tol=1e-7, func: Callable[[float], float] = None):
+        if func is None:
+            self.mean()
         return self.frozen.expect(func)
 
 

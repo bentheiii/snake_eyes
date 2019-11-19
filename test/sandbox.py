@@ -2,9 +2,8 @@ from itertools import islice
 
 from snake_eyes import *
 
-g = UnshiftedGeometricDistribution(1)
-print(g.support_space().minimum())
-z = g.zip(g)
+d6 = die(6)
 
-ss = z.support_space()
-print(list(islice(ss, 20)))
+ex = explode(d6)
+
+print(ex.approx_mean(sample_size=1_000_000))

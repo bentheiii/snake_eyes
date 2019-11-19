@@ -21,11 +21,7 @@ zip_ = MultiDispatch('zip')
 T = TypeVar('T')
 
 
-# todo max, min distributions
-# todo drop distributions
-# todo exploding distributions?
-
-class Distribution(Generic[T], Iterator):
+class Distribution(Iterator, Generic[T]):
     """
     A fully independent random variable
     """
@@ -139,17 +135,7 @@ class Distribution(Generic[T], Iterator):
             return None
         if ss.contains(k) is False:
             return 0
-        if not ss.is_finite():
-            return None
-        ret = 0
-        for x_i in ss:
-            if x_i != k:
-                continue
-            prob = self.probability(x_i)
-            if prob is None:
-                return None
-            ret += prob * x_i
-        return ret
+        return None
 
     def deviation(self) -> Optional[T]:
         """
@@ -236,9 +222,10 @@ class Distribution(Generic[T], Iterator):
         :param kwargs: forwarded to sample_mean, if necessary
         :return: the mean of the distribution, either exact or approximated using sample_mean
         """
-        exact = self.mean()
-        if exact is not None:
-            return exact
+        if 'func' not in kwargs:
+            exact = self.mean()
+            if exact is not None:
+                return exact
         return self.sample_mean(**kwargs)
 
     def approx_variance(self, **kwargs):
@@ -353,28 +340,41 @@ class Distribution(Generic[T], Iterator):
             return -(-other @ self)
         return sum(self for _ in range(other))
 
-    def __lt__(self, other: Distribution):
-        self_ss = self.support_space()
-        other_ss = other.support_space()
-        if self_ss is None or other_ss is None:
-            return NotImplemented
-        return self_ss < other_ss
+    def __lt__(self, other: T) -> Optional[float]:
+        ret = self.cumulative_density(other)
+        if ret is None:
+            return None
+        s = self.support_space()
+        if s is not None and s.kind() != DistributionKind.Continuous:
+            p = self.probability(other)
+            if p is None:
+                return None
+            ret -= p
+        return ret
 
-    def __le__(self, other: Distribution):
-        self_ss = self.support_space()
-        other_ss = other.support_space()
-        if self_ss is None or other_ss is None:
-            return NotImplemented
-        return self_ss <= other_ss
+    def __le__(self, other: T) -> Optional[float]:
+        return self.cumulative_density(other)
 
-    def __gt__(self, other: Distribution):
-        return other < self
+    def __gt__(self, other: T) -> Optional[float]:
+        return 1 - self.cumulative_density(other)
 
-    def __ge__(self, other: Distribution):
-        return other <= self
+    def __ge__(self, other: T) -> Optional[float]:
+        ret = 1 - self.cumulative_density(other)
+        if ret is None:
+            return None
+        s = self.support_space()
+        if s is not None and s.kind() != DistributionKind.Continuous:
+            p = self.probability(other)
+            if p is None:
+                return None
+            ret += p
+        return ret
+
+    def map(self, func: Callable[[T], F]) -> Distribution[F]:
+        return MappedDistribution(self, func)
 
 
-class ConstDistribution(Generic[T], Distribution[T]):
+class ConstDistribution(Distribution[T], Generic[T]):
     """
     A distribution that always returns a constant value
     """
@@ -454,8 +454,11 @@ class ConstDistribution(Generic[T], Distribution[T]):
     def __repr__(self):
         return type(self).__name__ + f"({self.value})"
 
+    def __hash__(self):
+        return hash(self.value)
 
-class SymmetricOpDistribution(Generic[T], Distribution[T]):
+
+class SymmetricOpDistribution(Distribution[T], Generic[T]):
     """
     Abstract class of composite distributions with a summetric and invertible function to compose them
     """
@@ -567,8 +570,14 @@ class SymmetricOpDistribution(Generic[T], Distribution[T]):
             total += poss_prob * other_prob
         return total
 
+    def __hash__(self):
+        return hash((type(self), frozenset(self.parts)))
 
-class SumDistribution(Generic[T], SymmetricOpDistribution[T]):
+    def __eq__(self, other):
+        return type(self) is type(other) and set(self.parts) == set(other.parts)
+
+
+class SumDistribution(SymmetricOpDistribution[T], Generic[T]):
     """
     A distribution for a sum of other distributions
     """
@@ -621,14 +630,11 @@ class SumDistribution(Generic[T], SymmetricOpDistribution[T]):
     def truediv(self, other: Any):
         return sum(p / other for p in self.parts)
 
-    def __eq__(self, other):
-        return type(self) is type(other) and set(self.parts) == set(other.parts)
-
     def __str__(self):
         return " + ".join(_maybe_parenthesise(p) for p in self.parts)
 
 
-class ProductDistribution(Generic[T], SymmetricOpDistribution[T]):
+class ProductDistribution(SymmetricOpDistribution[T], Generic[T]):
     """
     A distribution for a product of other distributions
     """
@@ -677,14 +683,11 @@ class ProductDistribution(Generic[T], SymmetricOpDistribution[T]):
         p = (*self.parts, other)
         return type(self)(p)
 
-    def __eq__(self, other):
-        return type(self) is type(other) and set(self.parts) == set(other.parts)
-
     def __str__(self):
         return " * ".join(_maybe_parenthesise(p) for p in self.parts)
 
 
-class ReciprocalDistribution(Generic[T], Distribution[T]):
+class ReciprocalDistribution(Distribution[T], Generic[T]):
     """
     A distribution for a reciprocal of another distribution
     """
@@ -716,6 +719,9 @@ class ReciprocalDistribution(Generic[T], Distribution[T]):
 
     def __str__(self):
         return f"1/" + _maybe_parenthesise(self.inner)
+
+    def __hash__(self):
+        return hash((type(self), self.inner))
 
 
 class ZipDistribution(Distribution[tuple]):
@@ -814,11 +820,15 @@ class ZipDistribution(Distribution[tuple]):
     def __repr__(self):
         return type(self).__name__ + "(" + ", ".join(_maybe_parenthesise(p) for p in self.parts) + ")"
 
+    def __hash__(self):
+        return hash((type(self), self.parts))
 
-class TruncatedDistribution(Generic[T], Distribution[T]):
+
+class TruncatedDistribution(Distribution[T], Generic[T]):
     """
     A truncated wrapper for a distribution, re-rolling all results outsize the bounds
     """
+
     def __init__(self, inner: Distribution[T], min=None, max=None):
         self.inner = inner
         self.min = min
@@ -917,3 +927,21 @@ class TruncatedDistribution(Generic[T], Distribution[T]):
 
     def __eq__(self, other):
         return type(self) is type(other) and (self.inner, self.min, self.max) == (other.inner, other.min, other.max)
+
+    def __hash__(self):
+        return hash((type(self), self.inner, self.min, self.max))
+
+
+F = TypeVar('F')
+
+
+class MappedDistribution(Distribution[T], Generic[F, T]):
+    def __init__(self, inner: Distribution[F], func: Callable[[F], T]):
+        self.inner = inner
+        self.func = func
+
+    def get(self) -> T:
+        return self.func(self.inner.get())
+
+    def get_n(self, n) -> Sequence[T]:
+        return [self.func(i) for i in self.inner.get_n(n)]
