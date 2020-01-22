@@ -7,7 +7,7 @@ setuptools.setup(
     version=snake_eyes.__version__,
     url=snake_eyes.__url__,
     author=snake_eyes.__author__,
-    packages=['snake_eyes', 'snake_eyes_data'],
+    packages=['snake_eyes', 'snake_eyes_data', 'snake_eyes.additional_distributions'],
     python_requires='>=3.7.0',
     include_package_data=True,
     data_files=[
